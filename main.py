@@ -146,6 +146,12 @@ def get_parser(**parser_kwargs):
         default=True, 
         help="Prepend the final directory in the data_root to the output directory name")
 
+    parser.add_argument(
+        "--max_training_steps",
+        type=int,
+        required=True,
+        help="Number of training steps to run")
+
     parser.add_argument("--actual_resume", 
         type=str,
         required=True,
@@ -168,8 +174,8 @@ def get_parser(**parser_kwargs):
 
     parser.add_argument("--class_word", 
         type=str, 
-        default="dog",
-        help="Placeholder token which will be used to denote the concept in future prompts")
+        default="person",
+        help="Match class_word to the category of images you want to train. Example: 'man', 'woman', or 'dog'.")
 
     parser.add_argument("--init_word", 
         type=str, 
@@ -456,11 +462,12 @@ class ImageLogger(Callback):
             self.log_img(pl_module, batch, batch_idx, split="train")
 
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
-        if not self.disabled and pl_module.global_step > 0:
-            self.log_img(pl_module, batch, batch_idx, split="val")
-        if hasattr(pl_module, 'calibrate_grad_norm'):
-            if (pl_module.calibrate_grad_norm and batch_idx % 25 == 0) and batch_idx > 0:
-                self.log_gradients(trainer, pl_module, batch_idx=batch_idx)
+        pass
+        #if not self.disabled and pl_module.global_step > 0:
+            #self.log_img(pl_module, batch, batch_idx, split="val")
+        #if hasattr(pl_module, 'calibrate_grad_norm'):
+            #if (pl_module.calibrate_grad_norm and batch_idx % 25 == 0) and batch_idx > 0:
+                #self.log_gradients(trainer, pl_module, batch_idx=batch_idx)
 
 
 class CUDACallback(Callback):
@@ -607,6 +614,10 @@ if __name__ == "__main__":
         lightning_config = config.pop("lightning", OmegaConf.create())
         # merge trainer cli with config
         trainer_config = lightning_config.get("trainer", OmegaConf.create())
+
+        # Set the steps
+        trainer_config.max_steps = opt.max_training_steps
+
         for k in nondefault_trainer_args(opt):
             trainer_config[k] = getattr(opt, k)
         if not "gpus" in trainer_config:
@@ -737,8 +748,8 @@ if __name__ == "__main__":
             print(
                 'Caution: Saving checkpoints every n train steps without deleting. This might require some free space.')
             default_metrics_over_trainsteps_ckpt_dict = {
-                'metrics_over_trainsteps_checkpoint':
-                    {"target": 'pytorch_lightning.callbacks.ModelCheckpoint',
+                'metrics_over_trainsteps_checkpoint': {
+                    "target": 'pytorch_lightning.callbacks.ModelCheckpoint',
                      'params': {
                          "dirpath": os.path.join(ckptdir, 'trainstep_checkpoints'),
                          "filename": "{epoch:06}-{step:09}",
@@ -782,8 +793,7 @@ if __name__ == "__main__":
         # configure learning rate
         bs, base_lr = config.data.params.batch_size, config.model.base_learning_rate
         if not cpu:
-            #ngpu = len(lightning_config.trainer.gpus.strip(",").split(','))
-            ngpu = 1
+            ngpu = len(lightning_config.trainer.gpus.strip(",").split(','))
         else:
             ngpu = 1
         if 'accumulate_grad_batches' in lightning_config.trainer:
@@ -852,5 +862,5 @@ if __name__ == "__main__":
             os.makedirs(os.path.split(dst)[0], exist_ok=True)
             os.rename(logdir, dst)
         if trainer.global_rank == 0:
-            print("Another one bites the dust...")
-            print(trainer.profiler.summary())
+            print("Training complete. max_training_steps reached or we blew up.")
+            # print(trainer.profiler.summary())
